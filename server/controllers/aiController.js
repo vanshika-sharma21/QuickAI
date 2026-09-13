@@ -5,38 +5,32 @@ import { callOpenRouterImageChatCompletions } from "../configs/openrouter.js";
 import axios from "axios";
 import FormData from "form-data";
 import fs from "fs";
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // =====================================================
-// GEMINI MODEL
+// GEMINI SETUP
 // =====================================================
 
-const getGeminiModel = async () => {
-  const preferred = process.env.GEMINI_MODEL;
+const genAI = new GoogleGenerativeAI(
+  process.env.GEMINI_API_KEY
+);
 
-  const candidates = preferred
-    ? [preferred]
-    : ["gemini-2.5-flash"];
+// =====================================================
+// GET GEMINI MODEL
+// =====================================================
 
-  for (const modelName of candidates) {
-    try {
-      return genAI.getGenerativeModel({
-        model: modelName,
-      });
-    } catch (err) {
-      console.log(
-        `Gemini model ${modelName} unavailable:`,
-        err.message
-      );
-    }
+const getGeminiModel = () => {
+  const modelName =
+    process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error(
+      "GEMINI_API_KEY is not configured in .env"
+    );
   }
 
-  throw new Error("No Gemini model available");
+  return genAI.getGenerativeModel({
+    model: modelName,
+  });
 };
 
 // =====================================================
@@ -45,8 +39,10 @@ const getGeminiModel = async () => {
 
 export const generateArticle = async (req, res) => {
   try {
-    const { userId } = req.auth();
-    const { prompt } = req.body;
+    const auth = req.auth?.();
+    const userId = auth?.userId;
+
+    const { prompt } = req.body || {};
 
     if (!userId) {
       return res.status(401).json({
@@ -55,36 +51,56 @@ export const generateArticle = async (req, res) => {
       });
     }
 
-    if (!prompt) {
+    if (!prompt || !prompt.trim()) {
       return res.status(400).json({
         success: false,
         message: "Prompt is required",
       });
     }
 
-    const model = await getGeminiModel();
+    const model = getGeminiModel();
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent(
+      prompt.trim()
+    );
 
-    const content = result.response.text();
+    const content = result?.response?.text?.();
 
+    if (!content) {
+      throw new Error(
+        "Gemini did not return any content"
+      );
+    }
+
+    // SAVE ARTICLE TO DATABASE
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type)
-      VALUES
-      (${userId}, ${prompt}, ${content}, 'article')
+      VALUES (
+        ${userId},
+        ${prompt},
+        ${content},
+        'article'
+      )
     `;
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content,
     });
   } catch (error) {
-    console.log("ARTICLE ERROR:", error.message);
+    console.error(
+      "ARTICLE ERROR:",
+      error?.response?.data ||
+        error?.message ||
+        error
+    );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        error?.message ||
+        "Failed to generate article",
     });
   }
 };
@@ -95,8 +111,10 @@ export const generateArticle = async (req, res) => {
 
 export const generateBlogTitle = async (req, res) => {
   try {
-    const { userId } = req.auth();
-    const { prompt } = req.body;
+    const auth = req.auth?.();
+    const userId = auth?.userId;
+
+    const { prompt } = req.body || {};
 
     if (!userId) {
       return res.status(401).json({
@@ -105,48 +123,70 @@ export const generateBlogTitle = async (req, res) => {
       });
     }
 
-    if (!prompt) {
+    if (!prompt || !prompt.trim()) {
       return res.status(400).json({
         success: false,
         message: "Prompt is required",
       });
     }
 
-    const model = await getGeminiModel();
+    const model = getGeminiModel();
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent(
+      prompt.trim()
+    );
 
-    const content = result.response.text();
+    const content = result?.response?.text?.();
 
+    if (!content) {
+      throw new Error(
+        "Gemini did not return any content"
+      );
+    }
+
+    // SAVE BLOG TITLE TO DATABASE
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type)
-      VALUES
-      (${userId}, ${prompt}, ${content}, 'blog-title')
+      VALUES (
+        ${userId},
+        ${prompt},
+        ${content},
+        'blog-title'
+      )
     `;
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content,
     });
   } catch (error) {
-    console.log("BLOG TITLE ERROR:", error.message);
+    console.error(
+      "BLOG TITLE ERROR:",
+      error?.response?.data ||
+        error?.message ||
+        error
+    );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        error?.message ||
+        "Failed to generate blog title",
     });
   }
 };
 
 // =====================================================
-// IMAGE GENERATION
+// GENERATE IMAGE
 // =====================================================
 
 export const generateImage = async (req, res) => {
   try {
-    const { userId } = req.auth();
-    const { prompt, publish } = req.body;
+    const auth = req.auth?.();
+    const userId = auth?.userId;
+
+    const { prompt, publish } = req.body || {};
 
     if (!userId) {
       return res.status(401).json({
@@ -155,52 +195,65 @@ export const generateImage = async (req, res) => {
       });
     }
 
-    if (!prompt) {
+    if (!prompt || !prompt.trim()) {
       return res.status(400).json({
         success: false,
         message: "Prompt is required",
       });
     }
 
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-      prompt
-    )}`;
+    const imageUrl =
+      `https://image.pollinations.ai/prompt/` +
+      encodeURIComponent(prompt.trim());
 
+    // SAVE IMAGE TO DATABASE
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type, publish)
-      VALUES
-      (
+      VALUES (
         ${userId},
         ${prompt},
         ${imageUrl},
         'image',
-        ${publish ?? false}
+        ${publish === true}
       )
     `;
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content: imageUrl,
     });
   } catch (error) {
-    console.log("IMAGE ERROR:", error.message);
+    console.error(
+      "IMAGE ERROR:",
+      error?.message || error
+    );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        error?.message ||
+        "Failed to generate image",
     });
   }
 };
 
 // =====================================================
-// HELPER - GET BASE64 FROM FILE
+// HELPER - READ FILE AS BASE64
 // =====================================================
 
 const getBase64FromFile = (filePath) => {
-  const buffer = fs.readFileSync(filePath);
+  if (!filePath) {
+    throw new Error("File path is missing");
+  }
 
-  return buffer.toString("base64");
+  if (!fs.existsSync(filePath)) {
+    throw new Error("File does not exist");
+  }
+
+  return fs
+    .readFileSync(filePath)
+    .toString("base64");
 };
 
 // =====================================================
@@ -212,6 +265,22 @@ const callOpenRouterImageEdit = async ({
   mimeType,
   instruction,
 }) => {
+  if (!imageBase64) {
+    throw new Error("Image data is missing");
+  }
+
+  if (!instruction) {
+    throw new Error(
+      "Image edit instruction is missing"
+    );
+  }
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not configured in .env"
+    );
+  }
+
   const model =
     process.env.OPENROUTER_IMAGE_EDIT_MODEL ||
     "openai/gpt-image-1";
@@ -239,8 +308,6 @@ const callOpenRouterImageEdit = async ({
         ],
       },
     ],
-
-    temperature: 0.2,
   };
 
   const data =
@@ -253,105 +320,149 @@ const callOpenRouterImageEdit = async ({
     JSON.stringify(data, null, 2)
   );
 
-  const content =
-    data?.choices?.[0]?.message?.content;
+  const message =
+    data?.choices?.[0]?.message;
 
-  let text = "";
+  if (!message) {
+    throw new Error(
+      "Invalid response from OpenRouter"
+    );
+  }
 
-  // ---------------------------------------------------
+  // ===================================================
+  // CONTENT
+  // ===================================================
+
+  const content = message.content;
+
+  // ===================================================
   // STRING RESPONSE
-  // ---------------------------------------------------
+  // ===================================================
 
   if (typeof content === "string") {
-    text = content.trim();
+    const text = content.trim();
+
+    // Direct data URL
+    if (text.startsWith("data:image")) {
+      return {
+        content: text,
+      };
+    }
+
+    // Direct URL
+    if (/^https?:\/\//i.test(text)) {
+      return {
+        content: text,
+      };
+    }
+
+    // Markdown image
+    const markdownMatch = text.match(
+      /!\[[^\]]*\]\((https?:\/\/[^)]+)\)/
+    );
+
+    if (markdownMatch) {
+      return {
+        content: markdownMatch[1],
+      };
+    }
+
+    // JSON response
+    try {
+      const parsed = JSON.parse(text);
+
+      const url =
+        parsed?.url ||
+        parsed?.image_url ||
+        parsed?.secure_url;
+
+      if (url) {
+        return {
+          content: url,
+        };
+      }
+
+      const base64 =
+        parsed?.base64 ||
+        parsed?.image_base64 ||
+        parsed?.image;
+
+      if (base64) {
+        return {
+          content: base64.startsWith("data:")
+            ? base64
+            : `data:${mimeType};base64,${base64}`,
+        };
+      }
+    } catch {
+      // Not JSON
+    }
   }
 
-  // ---------------------------------------------------
+  // ===================================================
   // ARRAY RESPONSE
-  // ---------------------------------------------------
+  // ===================================================
 
-  else if (Array.isArray(content)) {
-    text = content
-      .map((item) => item?.text || "")
-      .join("")
-      .trim();
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (!item) continue;
+
+      // URL
+      if (item.url) {
+        return {
+          content: item.url,
+        };
+      }
+
+      if (item.image_url?.url) {
+        return {
+          content: item.image_url.url,
+        };
+      }
+
+      // Base64
+      if (item.base64) {
+        return {
+          content: item.base64.startsWith("data:")
+            ? item.base64
+            : `data:${mimeType};base64,${item.base64}`,
+        };
+      }
+
+      if (item.image_base64) {
+        return {
+          content: item.image_base64.startsWith(
+            "data:"
+          )
+            ? item.image_base64
+            : `data:${mimeType};base64,${item.image_base64}`,
+        };
+      }
+    }
   }
 
-  // ---------------------------------------------------
-  // TRY JSON
-  // ---------------------------------------------------
+  // ===================================================
+  // POSSIBLE MESSAGE IMAGE FIELDS
+  // ===================================================
 
-  let parsed = null;
-
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    parsed = null;
-  }
-
-  // ---------------------------------------------------
-  // POSSIBLE URL FIELDS
-  // ---------------------------------------------------
-
-  const candidateUrl =
-    parsed?.url ||
-    parsed?.image_url ||
-    parsed?.secure_url;
-
-  if (candidateUrl) {
+  if (message.image_url) {
     return {
-      content: candidateUrl,
+      content: message.image_url,
     };
   }
 
-  // ---------------------------------------------------
-  // POSSIBLE BASE64 FIELDS
-  // ---------------------------------------------------
-
-  const candidateB64 =
-    parsed?.base64 ||
-    parsed?.image_base64 ||
-    parsed?.image;
-
-  if (candidateB64) {
+  if (message.url) {
     return {
-      content: candidateB64.startsWith("data:")
-        ? candidateB64
-        : `data:${mimeType};base64,${candidateB64}`,
+      content: message.url,
     };
   }
 
-  // ---------------------------------------------------
-  // MARKDOWN IMAGE URL
-  // ---------------------------------------------------
-
-  const markdownMatch = text.match(
-    /!\[[^\]]*\]\((https?:\/\/[^)]+)\)/
-  );
-
-  if (markdownMatch) {
+  if (message.base64) {
     return {
-      content: markdownMatch[1],
-    };
-  }
-
-  // ---------------------------------------------------
-  // DIRECT DATA URL
-  // ---------------------------------------------------
-
-  if (text.startsWith("data:image")) {
-    return {
-      content: text,
-    };
-  }
-
-  // ---------------------------------------------------
-  // DIRECT URL
-  // ---------------------------------------------------
-
-  if (/^https?:\/\//i.test(text)) {
-    return {
-      content: text,
+      content:
+        message.base64.startsWith("data:")
+          ? message.base64
+          : `data:${mimeType};base64,${message.base64}`,
     };
   }
 
@@ -364,11 +475,15 @@ const callOpenRouterImageEdit = async ({
 // REMOVE IMAGE BACKGROUND
 // =====================================================
 
-export const removeImageBackground = async (req, res) => {
+export const removeImageBackground = async (
+  req,
+  res
+) => {
   let filePath = null;
 
   try {
-    const { userId } = req.auth();
+    const auth = req.auth?.();
+    const userId = auth?.userId;
 
     const file = req.file;
 
@@ -388,20 +503,13 @@ export const removeImageBackground = async (req, res) => {
 
     filePath = file.path;
 
-    // -------------------------------------------------
-    // CHECK API KEY
-    // -------------------------------------------------
-
     if (!process.env.REMOVE_BG_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: "REMOVE_BG_API_KEY is not configured",
+        message:
+          "REMOVE_BG_API_KEY is not configured in .env",
       });
     }
-
-    // -------------------------------------------------
-    // FORM DATA
-    // -------------------------------------------------
 
     const formData = new FormData();
 
@@ -411,10 +519,6 @@ export const removeImageBackground = async (req, res) => {
     );
 
     formData.append("size", "auto");
-
-    // -------------------------------------------------
-    // API REQUEST
-    // -------------------------------------------------
 
     const response = await axios.post(
       "https://api.remove.bg/v1.0/removebg",
@@ -428,28 +532,28 @@ export const removeImageBackground = async (req, res) => {
           "X-Api-Key":
             process.env.REMOVE_BG_API_KEY,
         },
+
+        timeout: 60000,
       }
     );
 
-    // -------------------------------------------------
-    // CONVERT IMAGE TO BASE64
-    // -------------------------------------------------
+    if (!response.data) {
+      throw new Error(
+        "Remove.bg returned empty response"
+      );
+    }
 
     const base64Image =
-      `data:image/png;base64,${Buffer.from(
-        response.data,
-        "binary"
-      ).toString("base64")}`;
+      `data:image/png;base64,` +
+      Buffer.from(response.data).toString(
+        "base64"
+      );
 
-    // -------------------------------------------------
-    // SAVE TO DATABASE
-    // -------------------------------------------------
-
+    // SAVE RESULT TO DATABASE
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type)
-      VALUES
-      (
+      VALUES (
         ${userId},
         'Remove background',
         ${base64Image},
@@ -457,33 +561,53 @@ export const removeImageBackground = async (req, res) => {
       )
     `;
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content: base64Image,
     });
   } catch (error) {
-    console.log(
+    let message =
+      error?.message ||
+      "Failed to remove image background";
+
+    // Axios error from Remove.bg
+    if (error?.response?.data) {
+      try {
+        const errorText =
+          Buffer.from(
+            error.response.data
+          ).toString("utf8");
+
+        const parsed =
+          JSON.parse(errorText);
+
+        message =
+          parsed?.errors?.[0]?.title ||
+          parsed?.message ||
+          message;
+      } catch {
+        // Ignore parsing error
+      }
+    }
+
+    console.error(
       "REMOVE BG ERROR:",
-      error?.response?.data || error.message
+      message
     );
 
     return res.status(500).json({
       success: false,
-
-      message:
-        error?.response?.data?.errors?.[0]?.title ||
-        error.message,
+      message,
     });
   } finally {
-    // -------------------------------------------------
-    // DELETE TEMP FILE
-    // -------------------------------------------------
-
-    if (filePath && fs.existsSync(filePath)) {
+    if (
+      filePath &&
+      fs.existsSync(filePath)
+    ) {
       try {
         fs.unlinkSync(filePath);
       } catch (err) {
-        console.log(
+        console.error(
           "TEMP FILE DELETE ERROR:",
           err.message
         );
@@ -496,19 +620,22 @@ export const removeImageBackground = async (req, res) => {
 // REMOVE IMAGE OBJECT
 // =====================================================
 
-export const removeImageObject = async (req, res) => {
+export const removeImageObject = async (
+  req,
+  res
+) => {
   let filePath = null;
 
   try {
-    const { userId } = req.auth();
+    const auth = req.auth?.();
+    const userId = auth?.userId;
 
-    const { object } = req.body;
-
+    const { object } = req.body || {};
     const file = req.file;
 
-    // -------------------------------------------------
+    // =================================================
     // AUTH
-    // -------------------------------------------------
+    // =================================================
 
     if (!userId) {
       return res.status(401).json({
@@ -517,9 +644,9 @@ export const removeImageObject = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // FILE CHECK
-    // -------------------------------------------------
+    // =================================================
+    // FILE
+    // =================================================
 
     if (!file) {
       return res.status(400).json({
@@ -530,106 +657,118 @@ export const removeImageObject = async (req, res) => {
 
     filePath = file.path;
 
-    // -------------------------------------------------
-    // OBJECT CHECK
-    // -------------------------------------------------
+    // =================================================
+    // OBJECT
+    // =================================================
 
-    if (!object) {
+    if (!object || !object.trim()) {
       return res.status(400).json({
         success: false,
         message: "Object is required",
       });
     }
 
-    // -------------------------------------------------
+    // =================================================
+    // OPENROUTER KEY
+    // =================================================
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "OPENROUTER_API_KEY is not configured in .env",
+      });
+    }
+
+    // =================================================
     // READ IMAGE
-    // -------------------------------------------------
+    // =================================================
 
     const mimeType =
       file.mimetype || "image/png";
 
     const imageBase64 =
-      fs.readFileSync(filePath, {
-        encoding: "base64",
-      });
+      getBase64FromFile(filePath);
 
-    // -------------------------------------------------
+    // =================================================
     // INSTRUCTION
-    // -------------------------------------------------
+    // =================================================
 
     const instruction = `
-Remove "${object}" from the image.
+Remove "${object.trim()}" from the image.
 
 Fill the empty area naturally.
 
 Keep the original background, lighting,
-shadows, colors, composition and other objects unchanged.
+shadows, colors, composition and all
+other objects unchanged.
 
 Do not modify anything else.
 
 Return only the final edited image.
 `;
 
-    // -------------------------------------------------
+    // =================================================
     // OPENROUTER
-    // -------------------------------------------------
+    // =================================================
 
-    const { content } =
+    const result =
       await callOpenRouterImageEdit({
         imageBase64,
         mimeType,
         instruction,
       });
 
+    const content = result?.content;
+
     if (!content) {
-      return res.status(500).json({
-        success: false,
-        message:
-          "No image returned from OpenRouter",
-      });
+      throw new Error(
+        "No image returned from OpenRouter"
+      );
     }
 
-    // -------------------------------------------------
-    // SAVE TO DATABASE
-    // -------------------------------------------------
+    // =================================================
+    // SAVE
+    // =================================================
 
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type)
-      VALUES
-      (
+      VALUES (
         ${userId},
-        ${`Removed ${object}`},
+        ${`Removed ${object.trim()}`},
         ${content},
         'image'
       )
     `;
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content,
     });
   } catch (error) {
-    console.log(
+    console.error(
       "REMOVE OBJECT ERROR:",
       error?.response?.data ||
-        error.message
+        error?.message ||
+        error
     );
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        error?.message ||
+        "Failed to remove object",
     });
   } finally {
-    // -------------------------------------------------
-    // DELETE TEMP FILE
-    // -------------------------------------------------
-
-    if (filePath && fs.existsSync(filePath)) {
+    if (
+      filePath &&
+      fs.existsSync(filePath)
+    ) {
       try {
         fs.unlinkSync(filePath);
       } catch (err) {
-        console.log(
+        console.error(
           "TEMP FILE DELETE ERROR:",
           err.message
         );
@@ -642,17 +781,21 @@ Return only the final edited image.
 // RESUME REVIEW
 // =====================================================
 
-export const resumeReview = async (req, res) => {
+export const resumeReview = async (
+  req,
+  res
+) => {
   let filePath = null;
 
   try {
-    const { userId } = req.auth();
+    const auth = req.auth?.();
+    const userId = auth?.userId;
 
     const resume = req.file;
 
-    // -------------------------------------------------
+    // =================================================
     // AUTH
-    // -------------------------------------------------
+    // =================================================
 
     if (!userId) {
       return res.status(401).json({
@@ -661,9 +804,9 @@ export const resumeReview = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // FILE CHECK
-    // -------------------------------------------------
+    // =================================================
+    // FILE
+    // =================================================
 
     if (!resume) {
       return res.status(400).json({
@@ -674,21 +817,36 @@ export const resumeReview = async (req, res) => {
 
     filePath = resume.path;
 
-    // -------------------------------------------------
-    // CHECK RESUME API KEY
-    // -------------------------------------------------
+    // =================================================
+    // API KEY
+    // =================================================
 
     if (!process.env.RESUME) {
       return res.status(500).json({
         success: false,
         message:
-          "RESUME API key is not configured",
+          "RESUME API key is not configured in .env",
       });
     }
 
-    // -------------------------------------------------
-    // CREATE FORM DATA
-    // -------------------------------------------------
+    // =================================================
+    // CHECK FILE
+    // =================================================
+
+    if (
+      !filePath ||
+      !fs.existsSync(filePath)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Uploaded resume file not found",
+      });
+    }
+
+    // =================================================
+    // FORM DATA
+    // =================================================
 
     const formData = new FormData();
 
@@ -697,9 +855,9 @@ export const resumeReview = async (req, res) => {
       fs.createReadStream(filePath)
     );
 
-    // -------------------------------------------------
+    // =================================================
     // CVPARSE API
-    // -------------------------------------------------
+    // =================================================
 
     const response = await axios.post(
       "https://api.cvparse.io/v1/parse",
@@ -713,20 +871,32 @@ export const resumeReview = async (req, res) => {
         },
 
         timeout: 60000,
+
+        maxContentLength:
+          Infinity,
+
+        maxBodyLength:
+          Infinity,
       }
     );
 
-    const parsedResume = response.data;
+    const parsedResume =
+      response?.data;
 
-    // -------------------------------------------------
+    if (!parsedResume) {
+      throw new Error(
+        "CVParse returned empty response"
+      );
+    }
+
+    // =================================================
     // SAVE TO DATABASE
-    // -------------------------------------------------
+    // =================================================
 
     await sql`
       INSERT INTO creations
       (user_id, prompt, content, type)
-      VALUES
-      (
+      VALUES (
         ${userId},
         'Resume Review',
         ${JSON.stringify(parsedResume)},
@@ -734,39 +904,60 @@ export const resumeReview = async (req, res) => {
       )
     `;
 
-    // -------------------------------------------------
+    // =================================================
     // RESPONSE
-    // -------------------------------------------------
+    // =================================================
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       content: parsedResume,
     });
   } catch (error) {
-    console.log(
+    console.error(
       "CVPARSE ERROR:",
       error?.response?.data ||
-        error.message
+        error?.message ||
+        error
     );
+
+    let message =
+      error?.message ||
+      "Failed to parse resume";
+
+    if (error?.response?.data) {
+      if (
+        typeof error.response.data ===
+        "string"
+      ) {
+        message =
+          error.response.data;
+      } else {
+        message =
+          error.response.data?.message ||
+          error.response.data?.error ||
+          error.response.data?.errors?.[0]
+            ?.message ||
+          message;
+      }
+    }
 
     return res.status(500).json({
       success: false,
-
-      message:
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        error.message,
+      message,
     });
   } finally {
-    // -------------------------------------------------
+    // =================================================
     // DELETE TEMP RESUME
-    // -------------------------------------------------
+    // =================================================
 
-    if (filePath && fs.existsSync(filePath)) {
+    if (
+      filePath &&
+      fs.existsSync(filePath)
+    ) {
       try {
         fs.unlinkSync(filePath);
       } catch (err) {
-        console.log(
+        console.error(
           "RESUME FILE DELETE ERROR:",
           err.message
         );
