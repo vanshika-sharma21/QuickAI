@@ -13,9 +13,9 @@
   "description": "",
   "dependencies": {
     "@clerk/express": "^2.1.21",
+    "@google/generative-ai": "^0.24.1",
     "@neondatabase/serverless": "^1.1.0",
     "axios": "^1.16.1",
-
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
