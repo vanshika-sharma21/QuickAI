@@ -12,6 +12,7 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.61.7",
     "@clerk/react": "^6.7.1",
+    "@google/generative-ai": "^0.24.1",
     "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.20.0",
     "lucide-react": "^1.16.0",
